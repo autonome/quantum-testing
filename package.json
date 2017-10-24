@@ -1,0 +1,15 @@
+{
+  "name": "quantum-fx",
+  "version": "1.0.0",
+  "description": "some perf tests for firefox 57",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Dietrich Ayala <autonome@gmail.com> (http://metafluff.com)",
+  "license": "MPL-2.0",
+  "dependencies": {
+    "puppeteer": "latest",
+    "puppeteer-fx": "latest"
+  }
+}
