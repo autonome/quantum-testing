@@ -4,8 +4,9 @@ const puppeteerFx = require('./puppeteer-fx');
 const chromePath = '/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome';
 const chromeCanaryPath = '/Applications/Google\ Chrome\ Canary.app/Contents/MacOS/Google\ Chrome\ Canary';
 
-const firefox54Path= '/Applications/Firefox54.app/Contents/MacOS/firefox';
-const firefox56Path= '/Applications/Firefox.app/Contents/MacOS/firefox';
+const firefox50Path= '/Applications/Firefox\ 50.app/Contents/MacOS/firefox';
+const firefox54Path= '/Applications/Firefox\ 54.app/Contents/MacOS/firefox';
+const firefox56Path= '/Applications/Firefox\ 56.app/Contents/MacOS/firefox';
 const firefox57Path= '/Applications/Firefox\ Beta.app/Contents/MacOS/firefox';
 const firefox58Path= '/Applications/FirefoxNightly.app/Contents/MacOS/firefox';
 
@@ -20,16 +21,53 @@ const contentCheckInterval = 5000;
 
 const testConfigDebug = {
   iterations: 1,
-  measureCPUTime: false,
-  measureDiskIO: false,
+  measureCPUTime: true,
+  measureDiskIO: true,
 
   // sleeps
   afterSuiteRun: 1000,
-  afterPageRun: 1000,
-  afterBrowserLaunch: 1000,
-  afterPageNavigate: 1000,
-  contentCheckInterval: 5000
+  afterPageRun: 3000,
+  afterBrowserLaunch: 3000,
+  afterPageNavigate: 3000,
+
+  url: speedometerURL,
+  //onPage: speedometerHandler
+  //
+  onPage: async function(page) {
+    console.log('ONPAGE');
+    await sleep(10000);
+    console.log('ONPAGEdone');
+    return 28.7;
+  }
+  //
 };
+
+
+// TODO: deterministicize waiting for the start button, at least
+async function speedometerHandler(page) {
+  //console.log('speedometerHandler')
+
+  // Start test
+  page.evaluate('document.querySelector(\'section#home div.buttons button\').click()');
+
+  // Periodically check for results
+  while (true) {
+    const vals = await page.evaluate(() => {
+      return {
+        progress: document.querySelector('#progress-completed').style.width,
+        result: document.querySelector('#result-number').innerText
+      };
+    });
+
+    if (vals.result.length > 0) {
+
+      return +vals.result;
+    }
+    else {
+      await sleep(5000);
+    }
+  }
+}
 
 const testConfigProd = {
   iterations: 5,
@@ -37,13 +75,15 @@ const testConfigProd = {
   measureDiskIO: true,
   
   // sleeps
-  afterSuiteRun: 5000,
-  afterPageRun: 5000,
-  afterBrowserLaunch: 10000,
-  afterPageNavigate: 5000,
-  contentCheckInterval: 5000
-};
+  afterSuiteRun: 3000,
+  afterPageRun: 3000,
+  afterBrowserLaunch: 3000,
+  afterPageNavigate: 3000,
 
+  // content
+  url: speedometerURL,
+  onPage: speedometerHandler
+};
 
 const testConfig = testConfigDebug;
 //const testConfig = testConfigProd;
@@ -59,7 +99,7 @@ const testSuite = [
     }
   },
   */
-  /*
+  //
   {
     title: 'Chrome64',
     browser: 'chrome',
@@ -69,12 +109,24 @@ const testSuite = [
       headless: false
     }
   },
+  //
+  /*
+  {
+    title: 'Firefox50',
+    browser: 'firefox',
+    puppeteerOpts: {
+      userDataDir: './profile-firefox-50',
+      executablePath: firefox50Path,
+      headless: false
+    }
+  },
   */
   /*
   {
     title: 'Firefox54',
     browser: 'firefox',
     puppeteerOpts: {
+      userDataDir: './profile-firefox-54',
       executablePath: firefox54Path,
       headless: false
     }
@@ -85,27 +137,29 @@ const testSuite = [
     title: 'Firefox56',
     browser: 'firefox',
     puppeteerOpts: {
-      //userDataDir: './profile-firefox-56',
+      userDataDir: './profile-firefox-56',
       executablePath: firefox56Path,
       headless: false
     }
   },
   */
-  //
+  /*
   {
     title: 'Firefox57',
     browser: 'firefox',
     puppeteerOpts: {
+      userDataDir: './profile-firefox-57',
       executablePath: firefox57Path,
       headless: false
     }
   },
-  //
+  */
   /*
   {
     title: 'Firefox58',
     browser: 'firefox',
     puppeteerOpts: {
+      userDataDir: './profile-firefox-58',
       executablePath: firefox58Path,
       headless: false
     }
@@ -138,6 +192,7 @@ const testSuite = [
        headless: false },
     results: [ [ 56.05, 0, undefined ] ] } ]
 */
+// TODO: have config provide custom flattener
 function toCSV(results) {
   var rows = [];
   rows.push([
@@ -152,18 +207,19 @@ function toCSV(results) {
     'writesbytes',
     'error'
   ].join(','));
+
 	results.forEach(browserResult => {
     browserResult.results.forEach(result => {
       rows.push([
         browserResult.title,
         browserResult.browser,
         browserResult.puppeteerOpts.executablePath,
-        result[0], // speedometer
-        result[1], // cpu time
-        result[2].reads.count,
-        result[2].reads.bytes,
-        result[2].writes.count,
-        result[2].writes.bytes,
+        result.pageResults, // speedometer
+        result.cpuTime, // cpu time
+        result.ioResults.reads.count,
+        result.ioResults.reads.bytes,
+        result.ioResults.writes.count,
+        result.ioResults.writes.bytes,
         browserResult.error || ''
       ].join(','));
     });
@@ -175,6 +231,8 @@ function toCSV(results) {
 async function runTestSuite(suite, cfg) {
   let results = [];
   for (var i = 0; i < suite.length; i++) {
+    suite[i].error = '';
+    suite[i].results = [];
     try {
       // Apply global config options to browser run
       Object.keys(cfg).forEach(key => {
@@ -197,87 +255,136 @@ async function runTestSuite(suite, cfg) {
 // Run test n times with the specified browser
 async function runBrowserTest(cfg) {
   let results = [];
+  let exceptions = [];
+  let retries = cfg.iterations;
   for (let i = 0; i < cfg.iterations; i++) {
-    const result = await runSpeedometer(cfg);
-    //console.log('Speedometer Result', cfg.browser, result);
-    results.push(result);
-    // Wait 10s between runs
-    // TODO: deterministicize if possible
-    await sleep(5000);
+    try {
+      const result = await runPageTest(cfg);
+      //console.log('runPageTest Result', cfg.browser, result);
+      results.push(result);
+      // TODO: deterministicize if possible
+      await sleep(cfg.afterPageRun);
+    }
+    catch(ex) {
+      console.log('runPageTest error', ex);
+      console.log('retries', retries, i);
+      // retry...
+      if (retries > 0) {
+        // Save the error
+        exceptions.push(ex);
+        // Force another pass through the loop
+        i--;
+        // Only try a set number of times per run
+        // (same number as iterations)
+        retries--;
+        // Chill before retrying
+        console.log('chill and then retry', retries, i);
+        await sleep(cfg.afterPageRun);
+      }
+      else {
+        throw(exceptions);
+      }
+    }
   }
   //console.log('Browser Test Results', cfg, results);
   return results;
 }
 
-// Run Speedometer once, return result.
-// TODO: deterministicize waiting for the start button, at least
+// Open a page once while measuring certain aspects, until a handler
+// returns its results.
 // TODO: deterministicize browser.close() - is promise? puts off onto puppeteer impl
-async function runSpeedometer(cfg) {
-  console.log('runSpeedometer, launching browser...');
-  let purpleteer = cfg.browser == 'firefox' ? puppeteerFx : puppeteer;
-  const browser = await purpleteer.launch(cfg.puppeteerOpts);
-  console.log('launched');
-  const page = await browser.newPage();
-  console.log('got browser, going to sleep');
-  await sleep(3000);
-  console.log('after sleep');
-
-  console.log('attempting navigation');
-  // TODO: wtf why firefox fail
-  await page.goto(speedometerURL);
-  console.log('navigated to', speedometerURL);
-
-  // Wait for page to fully load and browser init stuff to complete
-  await sleep(15000);
-
-  // Start measuring CPU time
-  var cpuProc, cpuTime = 0; 
-  if (cfg.measureCPUTime) { 
-    measureCPUTime(cfg.browser, (process, time) => {
-      cpuProc = process;
-      cpuTime = time;
-    });
-  }
-
-  // Start measuring disk IO
-  var ioProc, ioResults;
-  if (cfg.measureDiskIO) { 
-    measureDiskIO(cfg.browser, (process, results) => {
-      ioProc = process;
-      ioResults = results;
-    });
-  }
-
-  // Start test
-  page.evaluate('document.querySelector(\'section#home div.buttons button\').click()');
-
-  // Periodically check for results
-  while (true) {
-    const vals = await page.evaluate(() => {
-      return {
-        progress: document.querySelector('#progress-completed').style.width,
-        result: document.querySelector('#result-number').innerText
+async function runPageTest(cfg) {
+  let exception, browser,
+      page, pageResults,
+      cpuProc, cpuTime = 0,
+      ioProc, ioResults = {
+        reads: { bytes: 0, count: 0},
+        writes: {bytes: 0, counts: 0}
       };
-    });
 
-    if (vals.result.length > 0) {
-      console.log('closinggggg');
-      await browser.close();
-      console.log('closed');
+  try {
+    //console.log('runPageTest, launching browser');
+    let purpleteer = cfg.browser == 'firefox' ? puppeteerFx : puppeteer;
+    browser = await purpleteer.launch(cfg.puppeteerOpts);
+    //console.log('launched browser');
+    page = await browser.newPage();
+    //console.log('got browser, going to sleep');
+    await sleep(cfg.afterBrowserLaunch);
+    //console.log('after sleep');
 
-      if (cfg.measureCPUTime) {
-        cpuProc.kill('SIGHUP');
-      }
+    //console.log('attempting navigation');
+    // TODO: wtf why firefox fail
+    await page.goto(cfg.url);
+    //console.log('navigated to', cfg.url);
 
-      if (cfg.measureDiskIO) {
-        ioProc.kill('SIGHUP');
-      }
+    // Wait for page to fully load and browser init stuff to complete
+    await sleep(cfg.afterPageNavigate);
 
-      return [+vals.result, cpuTime, ioResults];
+    // Start measuring CPU time
+    if (cfg.measureCPUTime) {
+      measureCPUTime(cfg.browser, (process, time) => {
+        cpuProc = process;
+        cpuTime = time;
+      });
+    }
+
+    // Start measuring disk IO
+    if (cfg.measureDiskIO) {
+      measureDiskIO(cfg.browser, (process, results) => {
+        ioProc = process;
+        ioResults = results;
+      });
+    }
+
+    // Start test
+    pageResults = await cfg.onPage(page);
+    //console.log('onPage results', pageResults);
+
+  }
+  catch(ex) {
+    exception = ex;
+    console.log('Error running page test', ex);
+  }
+
+  //console.log('browser closinggggg');
+  // TODO: add await back in
+  if (browser) {
+    browser.close();
+    //console.log('browser closed');
+  }
+  else {
+    throw('no browser to close!');
+  }
+
+  if (cfg.measureCPUTime) {
+    //console.log('configured for cpu, so killing');
+    if (cpuProc) {
+      cpuProc.kill();
+      //console.log('cpu proc killed');
     }
     else {
-      await sleep(5000);
+      throw('no cpu process to kill!');
     }
+  }
+
+  if (cfg.measureDiskIO) {
+    //console.log('configured for io, so killing');
+    if (ioProc) {
+      killemall(ioProc);
+      //console.log('io proc killed', ioProc.killed);
+    }
+    else {
+      throw('no io process to kill!');
+    }
+  }
+
+  if (exception != null) {
+    //console.log('page test throwing', exception);
+    throw(exception);
+  }
+  else {
+    //console.log('page test successful');
+    return {pageResults, cpuTime, ioResults};
   }
 }
 
@@ -324,11 +431,13 @@ async function measureDiskIO(browser, callback) {
     */
     const fieldData = lines.map(line => line.trim().split(/ +/));
 
+    //console.log('fieldData foreach', fieldData.length)
     fieldData.forEach(entry => {
       var direction = entry[7] == 'W' ? 'writes' : 'reads';
       tallies[direction].count++;
       tallies[direction].bytes += +entry[8]; 
     });
+    //console.log('end fieldData foreach')
 
     callback(child, tallies);
   });
@@ -352,7 +461,7 @@ Usage:
     secs -= 1000;
     console.log('secs', secs);
     if (secs < 0) {
-      process.kill('SIGHUP');
+      process.kill();
       console.log('CPUTIME', cpuTime);
     }
   });
@@ -429,7 +538,7 @@ function runCommand(cmd, onData) {
         }
       });
       child.stdout.on('end', () => {
-        child.kill('SIGHUP');
+        child.kill();
         res(output);
       });
     }
@@ -443,4 +552,34 @@ function timeToSeconds(hms) {
   }
   var seconds = (+a[0]) * 60 * 60 + (+a[1]) * 60 + (+a[2]);
   return seconds;
+}
+
+// http://krasimirtsonev.com/blog/article/Nodejs-managing-child-processes-starting-stopping-exec-spawn
+function killemall(proc) {
+	const psTree = require('ps-tree');
+
+	function kill(pid, signal, callback) {
+			signal   = signal || 'SIGKILL';
+			callback = callback || function () {};
+			var killTree = true;
+			if(killTree) {
+					psTree(pid, function (err, children) {
+							[pid].concat(
+									children.map(function (p) {
+											return p.PID;
+									})
+							).forEach(function (tpid) {
+									try { process.kill(tpid, signal) }
+									catch (ex) { }
+							});
+							callback();
+					});
+			} else {
+					try { process.kill(pid, signal) }
+					catch (ex) { }
+					callback();
+			}
+	}
+
+	kill(proc.pid);
 }

@@ -10,6 +10,7 @@
   "license": "MPL-2.0",
   "dependencies": {
     "puppeteer": "latest",
-    "puppeteer-fx": "latest"
+    "puppeteer-fx": "latest",
+    "ps-tree": "latest"
   }
 }
