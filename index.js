@@ -13,16 +13,19 @@ const firefox58Path= '/Applications/FirefoxNightly.app/Contents/MacOS/firefox';
 //const speedometerURL = 'https://mozilla.github.io/arewefastyet-speedometer/2.0/';
 const speedometerURL = 'http://localhost/arewefastyet-speedometer/2.0/';
  
-const afterSuiteRun = 2000;
-const afterPageRun = 2000;
-const afterBrowserLaunch = 2000;
-const afterPageNavigate = 2000;
-const contentCheckInterval = 5000;
-
 const testConfigDebug = {
   iterations: 1,
-  measureCPUTime: true,
-  measureDiskIO: true,
+  measureCPUTime: false,
+  measureDiskIO: false,
+ 
+  /*
+  // network
+  throttling: {
+    downloadThroughput: 75000,
+    uploadThroughput: 25000,
+    latency: 100
+  },
+  */
 
   // sleeps
   afterSuiteRun: 1000,
@@ -73,6 +76,12 @@ const testConfigProd = {
   iterations: 5,
   measureCPUTime: true,
   measureDiskIO: true,
+
+  throttling: {
+    downloadThroughput: 75000,
+    uploadThroughput: 25000,
+    latency: 100
+  },
   
   // sleeps
   afterSuiteRun: 3000,
@@ -85,8 +94,8 @@ const testConfigProd = {
   onPage: speedometerHandler
 };
 
-const testConfig = testConfigDebug;
-//const testConfig = testConfigProd;
+//const testConfig = testConfigDebug;
+const testConfig = testConfigProd;
 
 const testSuite = [
   /*
@@ -99,7 +108,7 @@ const testSuite = [
     }
   },
   */
-  //
+  /*
   {
     title: 'Chrome64',
     browser: 'chrome',
@@ -109,7 +118,7 @@ const testSuite = [
       headless: false
     }
   },
-  //
+  */
   /*
   {
     title: 'Firefox50',
@@ -121,7 +130,7 @@ const testSuite = [
     }
   },
   */
-  /*
+  //
   {
     title: 'Firefox54',
     browser: 'firefox',
@@ -131,7 +140,7 @@ const testSuite = [
       headless: false
     }
   },
-  */
+  //
   /*
   {
     title: 'Firefox56',
@@ -181,17 +190,6 @@ const testSuite = [
   });
 })();
 
-/*
-[ { title: 'Chrome 64',
-    browser: 'chrome',
-    iterations: 1,
-    measureCPUTime: false,
-    measureDiskIO: false,
-    puppeteerOpts: 
-     { executablePath: '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
-       headless: false },
-    results: [ [ 56.05, 0, undefined ] ] } ]
-*/
 // TODO: have config provide custom flattener
 function toCSV(results) {
   var rows = [];
@@ -238,6 +236,9 @@ async function runTestSuite(suite, cfg) {
       Object.keys(cfg).forEach(key => {
         suite[i][key] = testConfig[key];
       });
+      if (cfg.throttling) {
+        suite[i]['puppeteerOpts'].throttling = cfg.throttling;
+      }
       const result = await runBrowserTest(suite[i]); 
       suite[i].results = result;
     }
@@ -258,9 +259,10 @@ async function runBrowserTest(cfg) {
   let exceptions = [];
   let retries = cfg.iterations;
   for (let i = 0; i < cfg.iterations; i++) {
+    console.log('runBrowserTest', cfg.title, cfg.iterations, i);
     try {
       const result = await runPageTest(cfg);
-      //console.log('runPageTest Result', cfg.browser, result);
+      console.log('runPageTest Result', cfg.browser, result);
       results.push(result);
       // TODO: deterministicize if possible
       await sleep(cfg.afterPageRun);
@@ -273,7 +275,8 @@ async function runBrowserTest(cfg) {
         // Save the error
         exceptions.push(ex);
         // Force another pass through the loop
-        i--;
+        if (i > 0)
+          i--;
         // Only try a set number of times per run
         // (same number as iterations)
         retries--;
@@ -312,10 +315,10 @@ async function runPageTest(cfg) {
     await sleep(cfg.afterBrowserLaunch);
     //console.log('after sleep');
 
-    //console.log('attempting navigation');
+    console.log('attempting navigation');
     // TODO: wtf why firefox fail
     await page.goto(cfg.url);
-    //console.log('navigated to', cfg.url);
+    console.log('navigated to', cfg.url);
 
     // Wait for page to fully load and browser init stuff to complete
     await sleep(cfg.afterPageNavigate);
@@ -349,10 +352,10 @@ async function runPageTest(cfg) {
   //console.log('browser closinggggg');
   // TODO: add await back in
   if (browser) {
-    browser.close();
+    await browser.close();
     //console.log('browser closed');
   }
-  else {
+  else if (exception != null) {
     throw('no browser to close!');
   }
 
@@ -362,7 +365,7 @@ async function runPageTest(cfg) {
       cpuProc.kill();
       //console.log('cpu proc killed');
     }
-    else {
+    else if (exception != null) {
       throw('no cpu process to kill!');
     }
   }
@@ -373,7 +376,7 @@ async function runPageTest(cfg) {
       killemall(ioProc);
       //console.log('io proc killed', ioProc.killed);
     }
-    else {
+    else if (exception != null) {
       throw('no io process to kill!');
     }
   }
@@ -470,14 +473,16 @@ Usage:
 
 */
 async function measureCPUTime(browser, callback) {
-  const matchParent = browser == 'firefox' ? 'firefox' : 'Canary?';
+  const matchParent = browser == 'firefox' ? 'firefox' : '"^Google\ Chrome\ Ca"';
   const matchAll = browser == 'firefox' ? 'firefox|plugin-container' : 'Chrome';
 
   const ppidCmd = 'pgrep ' + matchParent;
   const ppid = await runCommand(ppidCmd);
+  //console.log('ppidcmd', ppidCmd, ppid);
 
   const kidPidsCmd = 'pgrep -P ' + ppid;
   const kidPidsStr = await runCommand(kidPidsCmd);
+  //console.log('kpidcmd', kidPidsStr);
 
   let pids = ppid.trim().split('\n').concat(kidPidsStr.trim().split('\n'));
 
@@ -486,14 +491,16 @@ async function measureCPUTime(browser, callback) {
   const topCmd = 
     'top ' +
     allPidsStr +
-    ' -F -R -a ' +
+    ' -F -R ' +
     ' -l 0 ' +
     '-stats "pid,command,cpu,time,mem,purg"';
   
   //console.log('top cmd', topCmd);
 
   runCommand(topCmd, (child, data) => {
+    //console.log(data);
     let lines = data.split('\n').filter(line => (new RegExp(matchAll, 'i')).test(line));
+
     if (browser == 'chrome') {
       lines = lines.map(line => line.replace(/Google Chrome (Ca|He)/, 'Google-Chrome-He'));
     }
@@ -501,9 +508,12 @@ async function measureCPUTime(browser, callback) {
     // array of arrays of [0] pid, [1] command, [2] cpu, [3] time, [4] mem, [5] purg
     const byProcess = lines.map(line => line.trim().split(/ +/));
 
-    const totalCPUTime = byProcess.reduce((sum, process) => sum + timeToSeconds(process[3]), 0); 
-
-    callback(child, totalCPUTime);
+    if (byProcess.length > 1) {
+      const cpuTimes = byProcess.map(process => [process[1], timeToSeconds(process[3])]);
+      const totalCPUTime = byProcess.reduce((sum, process) => sum + timeToSeconds(process[3]), 0);
+      //console.log('CPU', totalCPUTime, cpuTimes);
+      callback(child, totalCPUTime);
+    }
   });
 }
 

@@ -71,8 +71,9 @@ https://en.wikipedia.org/wiki/CPU_time
 ### network
 
 Node
-* puppeteer - in api
-* foxdriver - in actor, might need to wire up
+* puppeteer - in chrome debugger, but no public api
+* foxdriver - in tab.emulation actor, wired up to launch opts, need to test
+  * might be fine because we're not testing against chrome here (yet)
 
 Proxies
 * https://www.npmjs.com/package/throttle-proxy
@@ -92,9 +93,25 @@ Router
 Browser
 * https://developers.google.com/web/tools/chrome-devtools/network-performance/reference#throttling
 
-Articles
+Discussions/Articles
 * https://packetzoom.com/blog/how-to-test-your-app-in-different-network-conditions.html
 * https://www.hanselman.com/blog/HowToSimulateALowBandwidthConnectionForTestingWebSitesAndApplications.aspx
+* https://superuser.com/questions/126642/throttle-network-bandwidth-per-application-in-mac-os-x
+* https://stackoverflow.com/questions/9659382/installing-apples-network-link-conditioner-tool
+
+Trickle
+* `trickle -s -d 50 -w 100 firefox`
+* The -s tells the command to run standalone
+* The -d 50 tells it to limit bandwidth to 50 KB/s
+* The -w 100 set the peak detection window size to 100 KB
+* https://github.com/mariusae/trickle/issues/13
+* http://trickled.sourceforge.net/
+* https://www.linux.com/news/shape-your-traffic-trickle
+* https://stackoverflow.com/questions/10328568/simulate-limited-bandwidth-from-within-chrome
+
+pf/pfctl
+* http://krypted.com/mac-security/a-cheat-sheet-for-using-pf-in-os-x-lion-and-up/
+* https://serverfault.com/questions/725030/traffic-shaping-on-osx-10-10-with-pfctl-and-dnctl
 
 ### Filesystem reads/writes
 
