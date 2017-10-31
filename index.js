@@ -16,8 +16,14 @@ const speedometerURL = 'http://localhost/arewefastyet-speedometer/2.0/';
 const testConfigDebug = {
   iterations: 1,
   measureCPUTime: false,
-  measureDiskIO: false,
+  measureDiskIO: true,
  
+  browsers: [
+    //'Chrome64',
+    //'Firefox54',
+    'Firefox57',
+  ],
+
   /*
   // network
   throttling: {
@@ -33,18 +39,49 @@ const testConfigDebug = {
   afterBrowserLaunch: 3000,
   afterPageNavigate: 3000,
 
+  //url: 'http://localhost/',
   url: speedometerURL,
-  //onPage: speedometerHandler
-  //
+  onPage: speedometerHandler
+  /*
   onPage: async function(page) {
     console.log('ONPAGE');
     await sleep(10000);
     console.log('ONPAGEdone');
     return 28.7;
   }
-  //
+  */
 };
 
+const testConfigProd = {
+  iterations: 5,
+  measureCPUTime: true,
+  measureDiskIO: true,
+  private: true,
+
+  browsers: [
+    //'Chrome64',
+    //'Firefox54',
+    'Firefox57',
+  ],
+
+	/*
+  throttling: {
+    downloadThroughput: 75000,
+    uploadThroughput: 25000,
+    latency: 100
+  },
+	*/
+  
+  // sleeps
+  afterSuiteRun: 3000,
+  afterPageRun: 3000,
+  afterBrowserLaunch: 3000,
+  afterPageNavigate: 3000,
+
+  // content
+  url: speedometerURL,
+  onPage: speedometerHandler
+};
 
 // TODO: deterministicize waiting for the start button, at least
 async function speedometerHandler(page) {
@@ -72,34 +109,11 @@ async function speedometerHandler(page) {
   }
 }
 
-const testConfigProd = {
-  iterations: 5,
-  measureCPUTime: true,
-  measureDiskIO: true,
-
-  throttling: {
-    downloadThroughput: 75000,
-    uploadThroughput: 25000,
-    latency: 100
-  },
-  
-  // sleeps
-  afterSuiteRun: 3000,
-  afterPageRun: 3000,
-  afterBrowserLaunch: 3000,
-  afterPageNavigate: 3000,
-
-  // content
-  url: speedometerURL,
-  onPage: speedometerHandler
-};
-
 //const testConfig = testConfigDebug;
 const testConfig = testConfigProd;
 
-const testSuite = [
-  /*
-  {
+const browsers = {
+  Chrome61: {
     title: 'Chrome61',
     browser: 'chrome',
     puppeteerOpts: {
@@ -107,9 +121,7 @@ const testSuite = [
       headless: false
     }
   },
-  */
-  /*
-  {
+  Chrome64: {
     title: 'Chrome64',
     browser: 'chrome',
     puppeteerOpts: {
@@ -118,9 +130,7 @@ const testSuite = [
       headless: false
     }
   },
-  */
-  /*
-  {
+  Firefox50: {
     title: 'Firefox50',
     browser: 'firefox',
     puppeteerOpts: {
@@ -129,9 +139,7 @@ const testSuite = [
       headless: false
     }
   },
-  */
-  //
-  {
+  Firefox54: {
     title: 'Firefox54',
     browser: 'firefox',
     puppeteerOpts: {
@@ -140,9 +148,7 @@ const testSuite = [
       headless: false
     }
   },
-  //
-  /*
-  {
+  Firefox56: {
     title: 'Firefox56',
     browser: 'firefox',
     puppeteerOpts: {
@@ -151,9 +157,7 @@ const testSuite = [
       headless: false
     }
   },
-  */
-  /*
-  {
+  Firefox57: {
     title: 'Firefox57',
     browser: 'firefox',
     puppeteerOpts: {
@@ -162,9 +166,7 @@ const testSuite = [
       headless: false
     }
   },
-  */
-  /*
-  {
+  Firefox58: {
     title: 'Firefox58',
     browser: 'firefox',
     puppeteerOpts: {
@@ -173,17 +175,18 @@ const testSuite = [
       headless: false
     }
   }
-  */
-];
+};
 
 // MAIN()
 (async () => {
-  var results = await runTestSuite(testSuite, testConfig);
-  const util = require('util')
+  const testBrowsers = testConfig.browsers.map(b => browsers[b]);
+  const results = await runTestSuite(testBrowsers, testConfig);
+  //const util = require('util')
   //console.log(util.inspect(results, { depth: null }));
   console.log(toCSV(results));
-  var fs = require('fs');
-  fs.writeFile('results.csv', toCSV(results), function(err) {
+  const fs = require('fs');
+  const fileName = 'results-' + testConfig.browsers.join('-') + '-' + Date.now() + '.csv';
+  fs.writeFile(fileName, toCSV(results), function(err) {
     if (err) {
       return console.log(err);
     }
@@ -238,6 +241,9 @@ async function runTestSuite(suite, cfg) {
       });
       if (cfg.throttling) {
         suite[i]['puppeteerOpts'].throttling = cfg.throttling;
+      }
+      if (cfg.private) {
+        suite[i]['puppeteerOpts'].private = cfg.private;
       }
       const result = await runBrowserTest(suite[i]); 
       suite[i].results = result;
@@ -302,7 +308,7 @@ async function runPageTest(cfg) {
       cpuProc, cpuTime = 0,
       ioProc, ioResults = {
         reads: { bytes: 0, count: 0},
-        writes: {bytes: 0, counts: 0}
+        writes: { bytes: 0, count: 0}
       };
 
   try {
@@ -362,7 +368,8 @@ async function runPageTest(cfg) {
   if (cfg.measureCPUTime) {
     //console.log('configured for cpu, so killing');
     if (cpuProc) {
-      cpuProc.kill();
+      //cpuProc.kill();
+      killemall(cpuProc);
       //console.log('cpu proc killed');
     }
     else if (exception != null) {
@@ -416,7 +423,9 @@ async function measureDiskIO(browser, callback) {
 
 
   runCommand(iotopCmd, (child, data) => {
+    console.log(data)
     let lines = data.split('\n').filter(line => (new RegExp(matchAll, 'i')).test(line));
+    console.log('io lines', lines)
 
     if (browser == 'chrome') {
       lines = lines.map(line => line.replace(/Google Chrome (Ca|He)/, 'Google-Chrome-He'));
@@ -441,6 +450,7 @@ async function measureDiskIO(browser, callback) {
       tallies[direction].bytes += +entry[8]; 
     });
     //console.log('end fieldData foreach')
+    console.log('end fieldData foreach', tallies)
 
     callback(child, tallies);
   });
